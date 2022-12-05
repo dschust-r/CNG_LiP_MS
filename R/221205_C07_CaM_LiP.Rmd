@@ -1,0 +1,684 @@
+---
+title: "C07 CNG ROS membranes +/- Calmodulin"
+author: "Dina"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    theme: spacelab
+    toc: true
+    toc_float: true
+    toc_depth: 4
+    code_folding: hide
+---
+<style>
+body {
+text-align: justify}
+</style>
+
+```{r setup, include=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## Experiment
+
+Experiment performed on: **220929**
+ 
+Membrane suspensions were prepared on 220913, snap-frozen and stored in liquid nitrogen.
+Buffer composition: 100 mM HEPES-KOH pH 7.4, 150 mM KCl, 1 mM MgCl2( + 1 mM CaCl2 added before experiment)
+
+CaM stock: 4 mg/mL in 50 mM HEPES-NaOH pH 7.5, 150 mM NaCl (add CaCl2 to 1 mM)
+
+Dilute CaM with 50 mM HEPES-NaOH pH 7.5, 150 mM NaCl, 1 mM CaCl2
+
+Blank: 50 mM HEPES-NaOH pH 7.5, 150 mM NaCl, 1 mM CaCl2
+
+CaM mounts spiked in: 
+
+* 0 ug
+* 0.01 ug
+* 0.1 ug
+* 0.5 ug
+* 1 ug
+* 2 ug
+* 3 ug
+
+All experiments were conducted in quadruplicates. 
+The suspensions were incubated with CaM for 10 minutes at 25°C, followed by a treatment with proteinase K (1:100 enzyme to substrate ratio) (LiP) or water (TC). The sample was then heated to 99°C for 5 minutes, cooled down at 4°C for 5 minutes, then treated with the same volume of 10 % sodium deoxycholate (standard LiP procedure). 
+The LiP step was followed by a tryptic digest over night and a C18 clean-up the next day. 
+A library of pooled replicates was produced. 
+After drying, peptides were resuspended and measured on a **Thermo Eploris 480** mass spectrometer on **220930**.
+Data was searched in Spectronaut (v.15).
+A contaminant FASTA file was included, single hits were excluded, 5 AA were set as the minimum peptide length. Data was median normalized in Spectronaut. Imputation was disabled. Peptides are grouped by their modified sequences.
+
+# PREPARATION
+
+## Loading packages
+
+Loaded packages include protti (v. 0.5.0), tidyverse (1.3.1) and data.table (v. 1.14.2). 
+
+```{r loading_packages, setting_wd, message=FALSE, warning=FALSE}
+library(protti)
+library(tidyverse)
+library(data.table)
+
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path)) # set working directory to location of R script
+```
+
+
+## Loading data
+
+Data exported from Spectronaut is imported. 
+
+```{r loading_data, message=FALSE, warning=FALSE}
+DIA_raw <- read_protti("20221007_161335_dschuster_Report_LiP.csv")
+```
+
+Only proteotypic peptides will be retained, except for the bovine CNG proteins.
+
+```{r cleaning_data, message = FALSE, warning = FALSE}
+
+DIA_raw_filtered <- DIA_raw %>%
+  filter(pg_fasta_files != "contaminants", pg_fasta_files != "NaN") %>%
+  filter(fg_quantity > 10) %>%
+  mutate(intensity_log2 = log2(pep_ms2quantity)) # Use peptide quantity (summed up for each peptide, only modifications are separated)
+
+DIA_clean <- DIA_raw_filtered %>% 
+  separate(r_condition, c("digestion", "concentration"), " ", remove = FALSE) %>%
+  mutate(concentration = as.numeric(concentration))  %>%
+  mutate(pg_protein_accessions = ifelse(pg_protein_accessions %like% "Q00194", "Q00194", pg_protein_accessions)) %>%
+  mutate(pg_protein_accessions = ifelse(pg_protein_accessions %like% "Q28181", "Q28181", pg_protein_accessions)) # replace everything containing the UniProt IDs of CNGA1 or CNGB1 with their UniProt IDs only. This ensures that these proteins are not considered non-proteotypic and helps fetch UniProt information
+# FASTA file contains reviewed and non reviewed entries, hence there's often multiple accessions for one protein
+
+DIA_clean_proteotypic <- DIA_clean %>%
+  filter(pg_protein_accessions!= "Q00194" | pg_protein_accessions!= "Q28181") %>%
+  filter(pep_is_proteotypic == T) # filter for proteotypic peptides (except for CNGA1/CNGB1)
+
+DIA_clean_CNG_non_proteotypic  <- DIA_clean %>%
+  filter(pg_protein_accessions %like% "Q00194" | pg_protein_accessions %like% "Q28181") # make df with CNGA1/CNGB1
+
+DIA_clean_final <- DIA_clean_proteotypic %>%
+  rbind(DIA_clean_CNG_non_proteotypic) %>% # rejoin CNGA1/CNGB1 df
+  mutate(uniprot_id = pg_protein_accessions) %>%
+  select(digestion, 
+         concentration,
+         r_condition,
+         r_file_name, 
+         r_replicate, 
+         pg_fasta_files, 
+         uniprot_id, 
+         pep_ms2quantity,
+         intensity_log2,
+         pep_grouping_key,
+         pep_stripped_sequence,
+         pep_nr_of_missed_cleavages
+         )
+  
+unis <- unique(DIA_clean_final$uniprot_id) # make vector for fetch_uniprot
+
+uniprot <- # download protein information from UniProt
+  fetch_uniprot(
+    unis,
+    columns =  c(
+      "protein_name",
+      "gene_names",
+      "length",
+      "sequence"
+    )
+  ) %>%
+  rename(
+    protein_sequence = sequence,
+    length_protein = length,
+    uniprot_id = accession
+  )
+
+DIA_clean_uniprot <- DIA_clean_final %>%
+  left_join(uniprot, by = "uniprot_id") %>% # rejoin with annotations
+  find_peptide(protein_sequence, pep_stripped_sequence) %>%
+  peptide_type(aa_before, last_aa) %>%
+  sequence_coverage(protein_sequence, pep_stripped_sequence) %>%
+  distinct()
+
+proteins_identified <- uniprot %>%
+  distinct(uniprot_id)
+
+DIA_clean_CNG <- DIA_clean_uniprot %>%
+  filter(uniprot_id == "Q00194" | uniprot_id == "Q28181")
+
+# fwrite(proteins_identified, file = "identified_proteins_CaM_LiP.csv", sep = ",")
+
+```
+
+
+# DATA ANALYSIS
+
+## Sequence coverage
+
+Check the sequence coverage of CNGA1/CNGB1 across conditions with annotation of Calmodulin binding domains (CaMBDs)
+
+```{r sequence_coverage_CNG, message = FALSE, warning = FALSE}
+
+DIA_clean_CNG %>%
+  mutate(concentration = fct_inorder(factor(concentration))) %>%
+  ggplot() +
+  geom_linerange(aes(x = concentration, ymax = end, ymin = start, col = concentration), size=5) +
+  coord_flip() +
+  xlab(" ") +
+  ylab("Protein Sequence") +
+  theme(axis.text.y = element_text(size=10)) +
+  # scale_y_continuous(breaks = seq(0,1253,100)) +
+  # theme_minimal() +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  facet_grid(~ uniprot_id) +
+  ggtitle(c("CNGA1 & CNGB1 coverage across conditions (LiP)"))
+
+# annotate Calmodulin binding domains (CaMBD)
+start <- c(679, 1239)
+end <- c(698, 1260)
+type <- c("CaMBD", "CaMBD")
+
+domains <- data.frame(start, end, type)
+
+DIA_clean_CNG %>%
+  filter(uniprot_id == "Q28181") %>%
+  dplyr::select(start, end) %>% 
+  mutate(type = "covered sequence") %>%
+  rbind(domains) %>%
+  ggplot() +
+  geom_linerange(aes(x = type, ymax = end, ymin = start, col = type), size=5) +
+  coord_flip() +
+  xlab(" ") +
+  ylab("protein sequence") +
+  theme(axis.text.y = element_text(size=10)) +
+  scale_y_continuous(breaks = seq(0,1394,100)) +
+  theme_bw() +
+  ggtitle(c("CNGB1 sequence coverage and domains")) +
+  scale_color_manual(values = c("#5680C1",
+                                        "#B96DAD",
+                                        "#64CACA",
+                                        "#81ABE9"))
+```
+
+
+## Volcano plots
+
+Volcano plots are shown to compare the peptide abundance between the mean of the highest condition and the rest. 
+p-values are adjusted for multiple testing with Benjamini-Hochberg correction.
+An FDR cutoff of 0.05 and a log2(fold change) cutoff of 1 is applied.
+All CNG peptides are highlighted in the plot below.
+
+```{r Volcano_plot_input, message = FALSE, warning = FALSE}
+Volcano_input <- DIA_clean_uniprot %>%
+  dplyr::select(
+    pep_grouping_key,
+    uniprot_id,
+    r_file_name,
+    r_condition,
+    r_replicate,
+    protein_name,
+    intensity_log2,
+    start,
+    end,
+    pep_type,
+    protein_sequence,
+    length_protein
+  ) %>%
+  filter(r_condition == "LiP 0" | r_condition == "LiP 3")
+
+Volcano_input <- Volcano_input %>%
+  unique() %>%
+  assign_missingness(r_file_name,
+                     r_condition,
+                     pep_grouping_key,
+                     intensity_log2,
+                     ref_condition = "LiP 0",
+                     retain_columns = c(uniprot_id, pep_grouping_key, start, end, pep_type, protein_sequence, length_protein))
+
+t_test_result_proDA_pep <- diff_abundance(Volcano_input, 
+                                r_file_name, 
+                                r_condition, 
+                                pep_grouping_key,
+                                intensity_log2,
+                                missingness, 
+                                comparison, 
+                                ref_condition = "LiP 0", 
+                                method = "proDA", 
+                                retain_columns = c(uniprot_id, pep_grouping_key, start, end, pep_type, protein_sequence, length_protein))
+
+```
+
+
+```{r volcano_plot_CNG, fig.align= "center", message = FALSE, warning = FALSE}
+
+volcano_protti(t_test_result_proDA_pep, pep_grouping_key, diff, adj_pval, method = "target", target_column = uniprot_id, target = c("Q28181", "Q00194") ,  x_axis_label = "log2(fold change) 3 ug CaM vs 0 ug CaM", title = "Volcano plot peptide level", y_axis_label = "-log10(q-value)", log2FC_cutoff = 1, significance_cutoff = 0.05, interactive = TRUE)
+
+```
+
+## Woods plot
+
+A woods plot showing the identified peptides and their corresponding fold changes. Significant peptides (adjusted p-value < 0.05) are highlighted with an asterisk.
+
+```{r woods, fig.align = "center", message = FALSE, warning = FALSE}
+
+t_test_result_proDA_pep %>%
+  filter(uniprot_id == "Q00194") %>%
+  mutate(significant = ifelse(adj_pval < 0.05, TRUE, FALSE)) %>%
+  drop_na() %>%
+  woods_plot(diff,
+             start,
+             end,
+             length_protein,
+             protein_id = uniprot_id,
+             highlight = significant,
+             colouring = pep_type,
+             fold_change_cutoff = 1)
+
+
+t_test_result_proDA_pep %>%
+  filter(uniprot_id == "Q28181") %>%
+  mutate(significant = ifelse(adj_pval < 0.05, TRUE, FALSE)) %>%
+  drop_na() %>%
+  woods_plot(diff,
+             start,
+             end,
+             length_protein,
+             protein_id = uniprot_id,
+             highlight = significant,
+             colouring = pep_type,
+             fold_change_cutoff = 1)
+
+```
+
+## Dose response curves
+
+Dose response curves are fitted based on 4 parameter logarithmic models computed for each curve. 
+The output are the EC50, the Hill coefficient, max and min value, as well the correlation and a p-value. 
+
+```{r dose_response_input, message = FALSE, warning = FALSE}
+# fit dose response curves for CNG channel proteins only
+
+dose_response <- DIA_clean_CNG  %>%
+  group_by(pep_grouping_key) %>%
+  mutate(completeness = length(pep_grouping_key)) %>%
+  mutate(concentration = (((((concentration/1000000)/57)*1000000)/16838)*1000000000)) # calculate Calmodulin concentration based on volume (57 uL) and molecular weight (16,838 Da)
+
+dose_response <- dose_response %>%
+  fit_drc_4p(r_file_name,
+             pep_grouping_key,
+             intensity_log2,
+             concentration,
+             filter = "none")
+
+merge <- DIA_clean_CNG %>%
+  dplyr::select(
+    pep_grouping_key,
+    pep_stripped_sequence,
+    protein_name,
+    uniprot_id,
+    start,
+    end,
+    pep_type,
+    length_protein
+  )
+
+colnames(merge) <-
+  c(
+    "pep_grouping_key",
+    "pep_stripped_sequence",
+    "protein",
+    "uniprot_id",
+    "start",
+    "end",
+    "peptide_type",
+    "length"
+  )
+
+dose_response_correlations <- dose_response %>%
+  left_join(merge, by = "pep_grouping_key") %>%
+  unique()
+
+dose_response_correlations_CNGA1 <- dose_response_correlations %>%
+filter(uniprot_id == "Q00194")
+
+dose_response_correlations_CNGB1 <- dose_response_correlations %>%
+filter(uniprot_id == "Q28181")
+
+# dose_response_correlations_CNGA1 %>%
+#   select(-plot_curve, -plot_points) %>%
+#   fwrite(file = "dose_response_correlations_CNGA1.csv")
+# 
+# dose_response_correlations_CNGB1 %>%
+#   select(-plot_curve, -plot_points) %>%
+#   fwrite(file = "dose_response_correlations_CNGB1.csv")
+# 
+# dose_response_correlations_sig <- dose_response_correlations %>%
+#   filter(correlation > 0.85)
+# 
+# barcode_plot(dose_response_correlations_CNGA1,
+#              start,
+#              end,
+#              length,
+#              facet = uniprot_id,
+#              cutoffs = c(correlation = 0.85, pval = 0.05)
+#              )
+# 
+# barcode_plot(dose_response_correlations_CNGB1,
+#              start,
+#              end,
+#              length,
+#              facet = uniprot_id,
+#              cutoffs = c(correlation = 0.85, pval = 0.05)
+#              )
+# 
+# plot_drc_4p(dose_response_correlations, pep_grouping_key, intensity_log2, concentration, targets = "all", unit = "nM", facet = FALSE, export = TRUE, export_name = "drc_CaM_CNG")
+# 
+# plot_drc_4p(dose_response_correlations_CNGA1, pep_grouping_key, intensity_log2, concentration, targets = "all", unit = "nM", facet = FALSE, export = TRUE, export_name = "drc_CaM_CNGA1")
+# 
+# plot_drc_4p(dose_response_correlations_CNGB1, pep_grouping_key, intensity_log2, concentration, targets = "all", unit = "nM", facet = FALSE, export = TRUE, export_name = "drc_CaM_CNGB1")
+```
+
+## Barcode plots
+
+Produce barcode plots with changing peptides (dose response correlation > 0.85) highlighted in pink.
+
+```{r dose_response_barcode, message = FALSE, warning = FALSE}
+
+dose_response_correlations_CNGA1 %>%
+  mutate(changing = ifelse(correlation > 0.85, T, F)) %>%
+  arrange(correlation) %>%
+  ggplot() +
+  geom_rect(aes(ymin = -1, ymax = 1, xmax = end, xmin = start, fill = changing)) +
+  scale_fill_manual(values = c("#7b829c", "#f02f95")) + 
+  theme(
+      plot.title = ggplot2::element_text(size = 20),
+      axis.title.y = element_blank(),
+      axis.text.y = element_blank(),
+      axis.ticks.y = element_blank(),
+      axis.title.x = ggplot2::element_text(size = 15),
+      legend.title = ggplot2::element_text(size = 15),
+      legend.text = ggplot2::element_text(size = 15),
+      strip.text = ggplot2::element_text(size = 15),
+      strip.background = element_blank(),
+      panel.background = element_blank(),
+      panel.border = element_rect(fill = NA)
+    )
+
+dose_response_correlations_CNGB1 %>%
+  mutate(changing = ifelse(correlation > 0.85, T, F)) %>%
+  arrange(correlation) %>%
+  ggplot() +
+  geom_rect(aes(ymin = -1, ymax = 1, xmax = end, xmin = start, fill = changing)) +
+  scale_fill_manual(values = c("#c67e80", "#b13692")) + 
+  scale_x_continuous(breaks = seq(0, 1394, 200)) +
+  theme(
+      plot.title = ggplot2::element_text(size = 20),
+      axis.title.y = element_blank(),
+      axis.text.y = element_blank(),
+      axis.ticks.y = element_blank(),
+      axis.title.x = ggplot2::element_text(size = 15),
+      legend.title = ggplot2::element_text(size = 15),
+      legend.text = ggplot2::element_text(size = 15),
+      strip.text = ggplot2::element_text(size = 15),
+      strip.background = element_blank(),
+      panel.background = element_blank(),
+      panel.border = element_rect(fill = NA)
+    )
+
+```
+
+## Map results on structures
+
+### Change B-factors in PDB file
+
+The b-factors in the original file are changed to the calculated amino acid scores so that in pyMOL or in ChimeraX the protein can be colored according to the score. 
+The PDB file is read in, changed and an altered PDB file is exported.
+
+In ChimeraX use command: 
+
+> color byattribute bfactor protein palette darkgrey:white:blue
+
+to change the color gradient to a gradient from grey to white to blue (similar to the score picture above).
+
+PyMOL commands: 
+
+Define your own colors in pyMOL with the command: 
+
+> set_color cblue, [123, 130, 156]
+
+> set_color cpink, [198, 126, 128]
+
+Then use command:
+
+> spectrum b, grey70_cblue_cblue_cpink_cpink, minimum = 0, maximum = 100
+ 
+ To highlight everything in the same color as in R. 
+ 
+```{r highlight_drc, message = FALSE, warning = FALSE}
+# Map results on structure deposited on RSCB PDB
+
+
+# Fetch UniProt information for CNGB1
+
+uniprot_ids <- unique(dose_response_correlations_CNGB1$uniprot_id)
+
+uniprot_information <- fetch_uniprot(uniprot_ids = uniprot_ids,
+                                     columns = c("sequence", "xref_pdb"))
+
+# Add UniProt information and find peptide positions in CNGB1
+
+CNGB1_annotated <- dose_response_correlations_CNGB1 %>%
+  left_join(uniprot_information, by = c("uniprot_id" = "accession")) %>%
+  find_peptide(protein_sequence = sequence, peptide_sequence = pep_stripped_sequence)
+
+# Fetch UniProt information for CNGA1
+
+uniprot_ids <- unique(dose_response_correlations_CNGA1$uniprot_id)
+
+uniprot_information <- fetch_uniprot(uniprot_ids = uniprot_ids,
+                                     columns = c("sequence", "xref_pdb"))
+
+# Add UniProt information and find peptide positions in CNGA1
+
+CNGA1_annotated <- dose_response_correlations_CNGA1 %>%
+  left_join(uniprot_information, by = c("uniprot_id" = "accession")) %>%
+  find_peptide(protein_sequence = sequence, peptide_sequence = pep_stripped_sequence)
+
+# Fetch pdb information for CNGB1
+
+CNGB1_pdb_ids <- CNGB1_annotated %>%
+  distinct(uniprot_id, xref_pdb) %>%
+  mutate(pdb_id = str_split(xref_pdb, pattern = ";")) %>%
+  unnest(pdb_id) %>%
+  filter(pdb_id == "7O4H")
+
+CNGB1_pdb_information <- fetch_pdb(pdb_ids = unique(CNGB1_pdb_ids$pdb_id))
+
+# Fetch pdb information for CNGA1
+
+CNGA1_pdb_ids <- CNGA1_annotated %>%
+  distinct(uniprot_id, xref_pdb) %>%
+  mutate(pdb_id = str_split(xref_pdb, pattern = ";")) %>%
+  unnest(pdb_id) %>%
+  filter(pdb_id == "7O4H")
+
+CNG_information <- fetch_pdb(pdb_ids = "7O4H")
+
+# Fetch structure (PDB 7O4H)
+
+CNG <- fetch_pdb_structure(pdb_ids = "7O4H", return_data_frame = T)
+
+# Merge CNGB1 and CNGA1 annotated data frames
+
+CNG_annotated_merged <- CNGA1_annotated %>%
+  rbind(CNGB1_annotated)
+
+# Find peptides in structure
+
+CNG_peptide_structure_positions <- find_peptide_in_structure(
+   peptide_data = CNG_annotated_merged,
+   peptide = pep_stripped_sequence,
+   start = start,
+   end = end,
+   uniprot_id = uniprot_id,
+   pdb_data = CNG_information,
+   retain_columns = (correlation)) %>%
+  mutate(significant = ifelse(correlation > 0.85, 100, 50))
+# 
+# # Map identified peptides on .pdb structure and export the structure
+# 
+# CNG_peptide_structure_positions %>% 
+#   mutate(map_value = 100) %>% 
+#   map_peptides_on_structure(
+#    uniprot_id = uniprot_id,
+#    pdb_id = pdb_ids,
+#    chain = auth_asym_id,
+#    auth_seq_id = auth_seq_id,
+#    map_value = significant,
+#    file_format = ".pdb", 
+#    export_location = "Y:/Dina/Projects/Collaboration 07 retinal CNG channel/220930"
+#  )
+
+```
+
+
+```{r highlight_drc_custom_PDB, message = FALSE, warning = FALSE}
+# Map results on local PDB file
+
+# CNG_peptide_structure_positions %>%
+#   mutate(map_value = 100) %>%
+#   map_peptides_on_structure(
+#    uniprot_id = uniprot_id,
+#    chain = auth_asym_id,
+#    auth_seq_id = auth_seq_id,
+#    map_value = significant,
+#    file_format = ".pdb",
+#    structure_file = "Y:/Dina/Projects/Collaboration 07 retinal CNG channel/220930/final model apo combined_151122.pdb",
+#    export_location = "Y:/Dina/Projects/220930/Collaboration 07 retinal CNG channel"
+#  )
+```
+
+# SUPPLEMENT - Quality control 
+
+## LiP condition
+
+### Charge states
+
+```{r quality_control_cvs, fig.width = 12, fig.align= "center",  message = FALSE, warning = FALSE}
+qc_cvs(
+  data = DIA_clean_uniprot,
+  grouping = pep_grouping_key,
+  condition = r_condition,
+  intensity = pep_ms2quantity,
+  plot = FALSE
+)
+
+qc_cvs(
+  data = DIA_clean_uniprot,
+  grouping = pep_grouping_key,
+  condition = r_condition,
+  intensity = pep_ms2quantity,
+  plot_style = "density",
+  plot = TRUE
+)
+
+qc_cvs(
+  data = DIA_clean_uniprot,
+  grouping = pep_grouping_key,
+  condition = r_condition,
+  intensity = pep_ms2quantity,
+  plot_style = "violin",
+  plot = TRUE
+)
+
+```
+
+### Intensity distribution
+
+Intensity distributions are plotted for the whole dataset.
+
+```{r quality_control_log2_int_distr, fig.align= "center", message = FALSE, warning = FALSE}
+qc_intensity_distribution(
+  DIA_clean_uniprot,
+  r_file_name,
+  pep_grouping_key,
+  intensity_log2,
+  plot_style = "histogram"
+)
+
+```
+
+### Missed cleavages
+
+
+```{r quality_control_missed_cleav, fig.align= "center", message = FALSE, warning = FALSE}
+qc_missed_cleavages(
+  DIA_clean_uniprot,
+  r_file_name,
+  pep_grouping_key,
+  pep_nr_of_missed_cleavages,
+  pep_ms2quantity,
+  method = "intensity",
+  plot = TRUE,
+  interactive = FALSE
+)
+
+qc_missed_cleavages(
+  DIA_clean_uniprot,
+  r_file_name,
+  pep_grouping_key,
+  pep_nr_of_missed_cleavages,
+  pep_ms2quantity,
+  method = "count",
+  plot = TRUE,
+  interactive = FALSE
+)
+```
+
+### Peptide types
+
+Peptide type (tryptic, semi-tryptic, non-tryptic) distributions are even throughout the different samples.
+
+```{r quality_control_pep_type, fig.align = "center", message = FALSE, warning = FALSE}
+qc_peptide_type(
+  DIA_clean_uniprot,
+  r_file_name,
+  pep_grouping_key,
+  pep_type,
+  intensity = pep_ms2quantity,
+  method = "count",
+  plot = TRUE,
+  interactive = FALSE
+)
+
+qc_peptide_type(
+  DIA_clean_uniprot,
+  r_file_name,
+  pep_grouping_key,
+  pep_type,
+  intensity = pep_ms2quantity,
+  method = "intensity",
+  plot = TRUE,
+  interactive = FALSE
+)
+
+```
+
+### Number of peptide IDs per sample
+
+The numbers of identified peptides are consistent throughout the different samples.
+
+```{r quality_control_pep_ID, fig.align = "center", message = FALSE, warning = FALSE}
+qc_ids(DIA_raw, r_file_name, pep_grouping_key, condition = r_condition, intensity = pep_ms2quantity)
+
+```
+
+### Principal component analysis (PCA)
+
+```{r PCA, message = FALSE, warning = FALSE}
+
+DIA_raw %>%
+  mutate(log2intensity = log2(pep_ms2quantity)) %>%
+qc_pca(r_file_name, 
+       pep_grouping_key, 
+       log2intensity, 
+       r_condition)
+
+```
