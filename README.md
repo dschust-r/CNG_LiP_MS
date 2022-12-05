@@ -7,5 +7,5 @@ Raw files, FASTA files and search results can be found on PRIDE (pride_ID_here)
 
 The main files relevant to the analysis are: 
   * 221205_C07_CaM_LiP.Rmd
-  * 22129_C07_CaM_TC.Rmd
+  * 221129_C07_CaM_TC.Rmd
  
