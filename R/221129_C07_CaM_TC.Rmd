@@ -1,0 +1,320 @@
+---
+title: "P04 AC8 OE membranes +/- Calmodulin - TRYPTIC CONTROLS"
+author: "Dina"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    theme: spacelab
+    toc: true
+    toc_float: true
+    toc_depth: 4
+    code_folding: hide
+---
+<style>
+body {
+text-align: justify}
+</style>
+
+```{r setup, include=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## Experiment
+
+Experiment performed on: **220929**
+ 
+Membrane suspensions were prepared on 220913, snap-frozen and stored in liquid nitrogen.
+Buffer composition: 100 mM HEPES-KOH pH 7.4, 150 mM KCl, 1 mM MgCl2( + 1 mM CaCl2 added before experiment)
+
+CaM stock: 4 mg/mL in 50 mM HEPES-NaOH pH 7.5, 150 mM NaCl (add CaCl2 to 1 mM)
+
+Dilute CaM with 50 mM HEPES-NaOH pH 7.5, 150 mM NaCl, 1 mM CaCl2
+
+Blank: 50 mM HEPES-NaOH pH 7.5, 150 mM NaCl, 1 mM CaCl2
+
+CaM mounts spiked in: 
+
+* 0 ug
+* 3 ug
+
+All experiments were conducted in quadruplicates. 
+The suspensions were incubated with CaM for 10 minutes at 25°C, followed by a treatment with water (TC). The sample was then heated to 99°C for 5 minutes, cooled down at 4°C for 5 minutes, then treated with the same volume of 10 % sodium deoxycholate (standard LiP procedure). 
+The LiP step was followed by a tryptic digest over night and a C18 clean-up the next day. 
+A library of pooled replicates was produced. 
+After drying, peptides were resuspended and measured on a **Thermo Eploris 480** mass spectrometer on **220930**.
+Data was searched in Spectronaut (v.15).
+A contaminant FASTA file was included, single hits were excluded, 5 AA were set as the minimum peptide length. Data was median normalized in Spectronaut. Imputation was disabled. Peptides are grouped by their modified sequences.
+
+
+# PREPARATION
+
+## Loading packages
+
+**protti** is an R package for LiP-MS and bottom-up proteomics data analysis developed in the Picotti lab (see here: [GitHub](https://github.com/jpquast/protti), [publication](https://doi.org/10.1093/bioadv/vbab041)).
+
+Other packages used are **tidyverse** and **data.table**.
+
+
+```{r loading_packages, message=FALSE, warning=FALSE, error=FALSE}
+library(protti) # v.0.5.0
+library(tidyverse) # v.1.3.1
+library(data.table) # v.1.14.2
+
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path)) # set working directory to location of R script
+```
+
+## Loading data
+
+```{r loading_data, message=FALSE, warning=FALSE}
+DIA_raw <- read_protti("20221007_142430_dschuster CNG TC_Report.csv")
+
+```
+Only proteotypic peptides will be retained, except for CNG proteins and Calmodulin.
+
+```{r cleaning_data, message = FALSE, warning = FALSE}
+
+DIA_raw_filtered <- DIA_raw %>%
+  filter(pg_fasta_files != "contaminants", pg_fasta_files != "NaN") %>%
+  filter(fg_quantity > 10) %>%
+  mutate(intensity_log2 = log2(pg_quantity))
+
+DIA_clean <- DIA_raw_filtered %>% 
+  separate(r_condition, c("digestion", "concentration"), " ", remove = FALSE) %>%
+  mutate(concentration = as.numeric(concentration))  %>%
+  mutate(pg_protein_accessions = ifelse(pg_protein_accessions %like% "Q00194", "Q00194", pg_protein_accessions)) %>%
+  mutate(pg_protein_accessions = ifelse(pg_protein_accessions %like% "Q28181", "Q28181", pg_protein_accessions)) %>%
+  mutate(pg_protein_accessions = ifelse(pg_protein_accessions %like% "P62157", "P62157", pg_protein_accessions))
+
+DIA_clean_proteotypic <- DIA_clean %>%
+  filter(pg_protein_accessions!= "Q00194" | pg_protein_accessions!= "Q28181" |  pg_protein_accessions!= "P62157") %>%
+  filter(pep_is_proteotypic == T)
+
+DIA_clean_CNG_non_proteotypic  <- DIA_clean %>%
+  filter(pg_protein_accessions %like% "Q00194" | pg_protein_accessions %like% "Q28181" | pg_protein_accessions %like% "P62157")
+
+DIA_clean_final <- DIA_clean_proteotypic %>%
+  rbind(DIA_clean_CNG_non_proteotypic) %>%
+  mutate(uniprot_id = pg_protein_accessions) %>%
+  select(digestion, 
+         concentration,
+         r_condition,
+         r_file_name, 
+         r_replicate, 
+         pg_fasta_files, 
+         uniprot_id, 
+         pep_ms2quantity,
+         intensity_log2,
+         pep_grouping_key,
+         pep_stripped_sequence,
+         pep_nr_of_missed_cleavages
+         )
+  
+unis <- unique(DIA_clean_final$uniprot_id)
+
+uniprot <-
+  fetch_uniprot(
+    unis,
+    columns =  c(
+      "protein_name",
+      "gene_names",
+      "length",
+      "sequence"
+    )
+  ) %>%
+  rename(
+    protein_sequence = sequence,
+    length_protein = length,
+    uniprot_id = accession
+  )
+
+DIA_clean_uniprot <- DIA_clean_final %>%
+  left_join(uniprot, by = "uniprot_id") %>%
+  find_peptide(protein_sequence, pep_stripped_sequence) %>%
+  peptide_type(aa_before, last_aa) %>%
+  sequence_coverage(protein_sequence, pep_stripped_sequence) %>%
+  distinct()
+
+proteins_identified <- uniprot %>%
+  distinct(uniprot_id)
+
+DIA_clean_CNG <- DIA_clean_uniprot %>%
+  filter(uniprot_id == "Q00194" | uniprot_id == "Q28181")
+
+```
+
+
+# DATA ANALYSIS
+
+
+## Volcano plots
+
+Volcano plots are shown to compare the protein abundances between the untreated and CaM treated condition using the [proDA](https://www.biorxiv.org/content/10.1101/661496v2) algorithm.
+p-values are calculated adjusted for multiple testing with Benjamini-Hochberg correction.
+An FDR cutoff of 0.01 and a log2(fold change) cutoff of 1 is applied.
+CNG proteins (Q00194, Q28181) and Calmodulin (P62157) are highlighted in the plot below.
+
+
+```{r Volcano_plot_input, message = FALSE, warning = FALSE}
+Volcano_input <- DIA_clean_uniprot %>%
+  dplyr::select(
+    uniprot_id,
+    r_file_name,
+    r_condition,
+    r_replicate,
+    protein_name,
+    intensity_log2,
+    start,
+    end,
+    pep_type,
+    protein_sequence,
+    length_protein
+  ) %>%
+  filter(r_condition == "TC 0" | r_condition == "TC 3")
+
+Volcano_input <- Volcano_input %>%
+  unique() %>%
+  assign_missingness(r_file_name,
+                     r_condition,
+                     uniprot_id,
+                     intensity_log2,
+                     ref_condition = "TC 0",
+                     retain_columns = c(protein_sequence, length_protein))
+
+t_test_result_proDA_prot <- diff_abundance(Volcano_input, 
+                                r_file_name, 
+                                r_condition, 
+                                uniprot_id,
+                                intensity_log2,
+                                missingness, 
+                                comparison, 
+                                ref_condition = "TC 0", 
+                                method = "proDA", 
+                                retain_columns = c(protein_sequence, length_protein))
+
+```
+
+
+```{r volcano_plot_AC8, fig.align= "center", message = FALSE, warning = FALSE}
+
+volcano_plot(t_test_result_proDA_prot, uniprot_id, diff, adj_pval, method = "target", target_column = uniprot_id, target = c("P62157", "Q00194", "Q28181"),  x_axis_label = "log2(fold change) 3 ug CaM vs 0 ug CaM", title = "Volcano plot protein level", y_axis_label = "-log10(q-value)", log2FC_cutoff = 1, significance_cutoff = 0.01, interactive = TRUE)
+
+```
+
+# SUPPLEMENT - Quality control 
+
+## Tryptic control
+
+### Coefficients of variation
+
+```{r quality_control_cvs, fig.width = 12, fig.align= "center",  message = FALSE, warning = FALSE}
+qc_cvs(
+  data = DIA_clean_uniprot,
+  grouping = pep_grouping_key,
+  condition = r_condition,
+  intensity = pep_ms2quantity,
+  plot = FALSE
+)
+
+qc_cvs(
+  data = DIA_clean_uniprot,
+  grouping = pep_grouping_key,
+  condition = r_condition,
+  intensity = pep_ms2quantity,
+  plot_style = "density",
+  plot = TRUE
+)
+
+qc_cvs(
+  data = DIA_clean_uniprot,
+  grouping = pep_grouping_key,
+  condition = r_condition,
+  intensity = pep_ms2quantity,
+  plot_style = "violin",
+  plot = TRUE
+)
+
+```
+
+### Intensity distribution
+
+```{r quality_control_log2_int_distr, fig.align= "center", message = FALSE, warning = FALSE}
+qc_intensity_distribution(
+  DIA_clean_uniprot,
+  r_file_name,
+  pep_grouping_key,
+  intensity_log2,
+  plot_style = "histogram"
+)
+
+```
+
+### Missed cleavages
+
+```{r quality_control_missed_cleav, fig.align= "center", message = FALSE, warning = FALSE}
+qc_missed_cleavages(
+  DIA_clean_uniprot,
+  r_file_name,
+  pep_grouping_key,
+  pep_nr_of_missed_cleavages,
+  pep_ms2quantity,
+  method = "intensity",
+  plot = TRUE,
+  interactive = FALSE
+)
+
+qc_missed_cleavages(
+  DIA_clean_uniprot,
+  r_file_name,
+  pep_grouping_key,
+  pep_nr_of_missed_cleavages,
+  pep_ms2quantity,
+  method = "count",
+  plot = TRUE,
+  interactive = FALSE
+
+)
+```
+
+### Peptide types
+
+```{r quality_control_pep_type, fig.align = "center", message = FALSE, warning = FALSE}
+qc_peptide_type(
+  DIA_clean_uniprot,
+  r_file_name,
+  pep_grouping_key,
+  pep_type,
+  intensity = pep_ms2quantity,
+  method = "count",
+  plot = TRUE,
+  interactive = FALSE
+)
+
+qc_peptide_type(
+  DIA_clean_uniprot,
+  r_file_name,
+  pep_grouping_key,
+  pep_type,
+  intensity = pep_ms2quantity,
+  method = "intensity",
+  plot = TRUE,
+  interactive = FALSE
+)
+
+```
+
+### Number of protein IDs per sample
+
+```{r quality_control_pep_ID, fig.align = "center", message = FALSE, warning = FALSE}
+qc_ids(DIA_clean_uniprot, r_file_name, uniprot_id, condition = r_condition, intensity = intensity_log2)
+
+```
+
+### Principal component analysis (PCA)
+
+```{r PCA, message = FALSE, warning = FALSE}
+qc_pca(DIA_clean_uniprot, 
+       r_file_name, 
+       uniprot_id, 
+       intensity_log2, 
+       r_condition)
+
+```
