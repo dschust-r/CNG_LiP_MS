@@ -1,0 +1,46 @@
+sample name,experiment,condition
+220930_EX1_dschuster_C07_011,ROS membrane CaM,LiP 0
+220930_EX1_dschuster_C07_012,ROS membrane CaM,LiP 0
+220930_EX1_dschuster_C07_013,ROS membrane CaM,LiP 0
+220930_EX1_dschuster_C07_014,ROS membrane CaM,LiP 0
+220930_EX1_dschuster_C07_015,ROS membrane CaM,TC 0
+220930_EX1_dschuster_C07_016,ROS membrane CaM,TC 0
+220930_EX1_dschuster_C07_017,ROS membrane CaM,TC 0
+220930_EX1_dschuster_C07_018,ROS membrane CaM,TC 0
+220930_EX1_dschuster_C07_019,ROS membrane CaM,LiP 0.01
+220930_EX1_dschuster_C07_020,ROS membrane CaM,LiP 0.01
+220930_EX1_dschuster_C07_021,ROS membrane CaM,LiP 0.01
+220930_EX1_dschuster_C07_022,ROS membrane CaM,LiP 0.01
+220930_EX1_dschuster_C07_023,ROS membrane CaM,LiP 0.1
+220930_EX1_dschuster_C07_024,ROS membrane CaM,LiP 0.1
+220930_EX1_dschuster_C07_025,ROS membrane CaM,LiP 0.1
+220930_EX1_dschuster_C07_026,ROS membrane CaM,LiP 0.1
+220930_EX1_dschuster_C07_027,ROS membrane CaM,LiP 0.5
+220930_EX1_dschuster_C07_028,ROS membrane CaM,LiP 0.5
+220930_EX1_dschuster_C07_029,ROS membrane CaM,LiP 0.5
+220930_EX1_dschuster_C07_030,ROS membrane CaM,LiP 0.5
+220930_EX1_dschuster_C07_031,ROS membrane CaM,LiP 1
+220930_EX1_dschuster_C07_032,ROS membrane CaM,LiP 1
+220930_EX1_dschuster_C07_033,ROS membrane CaM,LiP 1
+220930_EX1_dschuster_C07_034,ROS membrane CaM,LiP 1
+220930_EX1_dschuster_C07_035,ROS membrane CaM,LiP 2
+220930_EX1_dschuster_C07_036,ROS membrane CaM,LiP 2
+220930_EX1_dschuster_C07_037,ROS membrane CaM,LiP 2
+220930_EX1_dschuster_C07_038,ROS membrane CaM,LiP 2
+220930_EX1_dschuster_C07_039,ROS membrane CaM,LiP 3
+220930_EX1_dschuster_C07_040,ROS membrane CaM,LiP 3
+220930_EX1_dschuster_C07_041,ROS membrane CaM,LiP 3
+220930_EX1_dschuster_C07_042,ROS membrane CaM,LiP 3
+220930_EX1_dschuster_C07_043,ROS membrane CaM,TC 3
+220930_EX1_dschuster_C07_044,ROS membrane CaM,TC 3
+220930_EX1_dschuster_C07_045,ROS membrane CaM,TC 3
+220930_EX1_dschuster_C07_046,ROS membrane CaM,TC 3
+220930_EX1_dschuster_C07_047,ROS membrane CaM,library LiP 0
+220930_EX1_dschuster_C07_048,ROS membrane CaM,library TC 0
+220930_EX1_dschuster_C07_049,ROS membrane CaM,library LiP 0.01
+220930_EX1_dschuster_C07_050,ROS membrane CaM,library LiP 0.1
+220930_EX1_dschuster_C07_051,ROS membrane CaM,library LiP 0.5
+220930_EX1_dschuster_C07_052,ROS membrane CaM,library LiP 1
+220930_EX1_dschuster_C07_053,ROS membrane CaM,library LiP 2
+220930_EX1_dschuster_C07_054,ROS membrane CaM,library LiP 3
+220930_EX1_dschuster_C07_055,ROS membrane CaM,library TC 3
