@@ -11,7 +11,7 @@ The main files relevant to the analysis are:
  
  # Aims
  
- The aims of the experiment were to identify conformational changes on the bovine rod cyclic nucleotide-gated channel (CNG) upon addition of calmodulin. 
+ The aims of the experiment were to identify conformational changes on the bovine rod cyclic nucleotide-gated channel (CNG) upon addition of calmodulin directly in the native lipid environment. 
  
  # Experiment 
  
