@@ -8,6 +8,8 @@ Raw files, FASTA files and search results can be found on PRIDE (PXD038768).
 The main files relevant to the analysis are: 
   * 221205_C07_CaM_LiP.Rmd
   * 221129_C07_CaM_TC.Rmd
+  
+The sample list (containing information on the naming and conditions) can be found in the R folder but the condition setup is also contained in the search output deposited on PRIDE.
  
  # Aims
  
