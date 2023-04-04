@@ -1,6 +1,6 @@
 # LiP MS on native rod outer membrane samples
 
-This repository contains all files relevant for the data analysis of the publication (doi_here). 
+This repository contains all files relevant for the data analysis of the publication [in PNAS](https://www.pnas.org/doi/10.1073/pnas.2300309120). 
 
 The experimental setup, as well as the LC-MS/MS conditions for the experiment can be found in the methods section and/or on PRIDE (PXD038768). 
 Raw files, FASTA files and search results can be found on PRIDE (PXD038768).
